@@ -1,14 +1,15 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 async void main()
 {
-    var sg = new Signal();
+    var sg = new Signal<int>();
 
     async void genData()
     {
-        while(!sg.isClosed)
+        while(!sg.IsClosed)
         {
             Random rnd = new Random();
             sg.Push(rnd.Next(0, 100));
@@ -18,7 +19,7 @@ async void main()
 
     async void subscribeData()
     {
-        await foreach (int val in sg.GetData())
+        await foreach (int val in sg)
         {
             Console.WriteLine(val);
         }
@@ -31,49 +32,49 @@ async void main()
 
     await Task.Delay(10000);
 
-    sg.dispose();
+    sg.Dispose();
 }
 
 main();
 
 Console.ReadKey();
 
-public class Signal
+public class Signal<T>
 {
-    private TaskCompletionSource<int> result = new TaskCompletionSource<int>();
-    private bool closed = false;
+    private readonly CancellationTokenSource _cts = new();
+    private TaskCompletionSource<T> result { get; set; }
 
-    public bool isClosed { get => closed; }
+    public bool IsClosed { get => _cts.IsCancellationRequested; }
 
-    public void Push(int val)
+    public Signal()
+    {
+        result = new TaskCompletionSource<T>(_cts.Token);
+        result.SetCanceled(_cts.Token);
+    }
+
+    public void Push(T val)
     {
         result.SetResult(val);
     }
 
-    public async IAsyncEnumerable<int> GetData()
+    private async IAsyncEnumerable<T> GetData()
     {
-        while (!closed)
+        while (!_cts.IsCancellationRequested)
         {
-            int? val = null;
-            try
-            {
-                val = await result.Task;
-            }
-            catch (Exception)
-            {
-                Console.WriteLine("canceled");
-            }
-            if(!closed && val is not null)
-            {
-                yield return (int)val;
-                result = new TaskCompletionSource<int>();
-            }
+            var val = await result.Task;
+            yield return val;
+            result = new TaskCompletionSource<T>();
+            result.SetCanceled(_cts.Token);
         }
     }
 
-    public void dispose()
+    public IAsyncEnumerator<T> GetAsyncEnumerator()
     {
-        closed = true;
-        result.SetCanceled();
+        return GetData().GetAsyncEnumerator().WithCancellation(_cts.Token);
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
     }
 }
