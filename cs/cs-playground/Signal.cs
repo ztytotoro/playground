@@ -1,32 +1,47 @@
 ﻿using System.Collections.Generic;
-using System.Linq;
-using System.Reactive.Linq;
-using System.Reactive.Subjects;
-using System.Threading;
+using System.Threading.Tasks;
 
 namespace cs_playground
 {
     public class Signal<T>
     {
-        private readonly AsyncSubject<T> _subject = new();
-        private readonly CancellationTokenSource _cts = new();
-        public bool IsClosed { get => _cts.IsCancellationRequested; }
+        private readonly Queue<ValueTask<T>> _resultQueue = new();
+        private readonly Queue<ManualResetValueTaskSource<T>> _sourceQueue = new();
+        private bool _closed = false;
+
+        public bool IsClosed => _closed;
 
         public void Push(T val)
         {
-            _subject.Append(val);
+            CheckQueue();
+            var source = _sourceQueue.Dequeue();
+            source.SetResult(val);
         }
 
-        public IAsyncEnumerator<T> GetAsyncEnumerator()
+        public async IAsyncEnumerator<T> GetAsyncEnumerator()
         {
-            return _subject.ToAsyncEnumerable().GetAsyncEnumerator().WithCancellation(_cts.Token);
+            while(!_closed)
+            {
+                CheckQueue();
+                var task = _resultQueue.Dequeue();
+                yield return await task;
+            }
         }
 
         public void Dispose()
         {
-            _cts.Cancel();
-            _cts.Dispose();
-            _subject.Dispose();
+            _closed = true;
+        }
+
+        private void CheckQueue()
+        {
+            if (_sourceQueue.Count == 0)
+            {
+                var source = new ManualResetValueTaskSource<T>();
+                var task = new ValueTask<T>(source, 0);
+                _sourceQueue.Enqueue(source);
+                _resultQueue.Enqueue(task);
+            }
         }
     }
 }
