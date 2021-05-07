@@ -18,13 +18,18 @@ namespace cs_playground
             source.SetResult(val);
         }
 
+        public async ValueTask<T> Next()
+        {
+            CheckQueue();
+            var task = _resultQueue.Dequeue();
+            return await task;
+        }
+
         public async IAsyncEnumerator<T> GetAsyncEnumerator()
         {
             while(!_closed)
             {
-                CheckQueue();
-                var task = _resultQueue.Dequeue();
-                yield return await task;
+                yield return await Next();
             }
         }
 
