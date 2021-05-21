@@ -1,9 +1,5 @@
-use futures::executor;
+mod result;
 
 fn main() {
-    executor::block_on(async_test());
-}
-
-async fn async_test() {
-    println!("Hello, world!");
+    result::test();
 }
